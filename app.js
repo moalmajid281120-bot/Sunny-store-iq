@@ -83,3 +83,4 @@ loadProducts().then(()=>{
   saveCart();
   route();
 }).catch(err=>{ console.error(err); showToast('تعذر تحميل المنتجات'); route(); });
+getDocs(collection(db,'products')).then(s=>alert('عدد المستندات: '+s.size+'\n'+JSON.stringify(s.docs[0]?.data()))).catch(e=>alert('خطأ: '+e.message));

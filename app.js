@@ -1,3 +1,8 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const db = getFirestore(initializeApp(firebaseConfig));
 const DELIVERY_FEE = 5000;
 const categories = [
   {id:'brooches',name:'بروشات',icon:'✨'},
@@ -9,16 +14,22 @@ const categories = [
   {id:'stationery',name:'قرطاسية',icon:'📒'},
   {id:'medals',name:'مداليات',icon:'🏅'}
 ];
-const products = [
-  {id:'p1',name:'بروش زهرة مشمسة',category:'brooches',price:15000,desc:'بروش أنيق بلمسة مشرقة، مثال تجريبي حتى نربط المنتجات الحقيقية.'},
-  {id:'p2',name:'بروش هلال ذهبي',category:'brooches',price:12000,desc:'قطعة خفيفة وأنيقة للاستخدام اليومي.'},
-  {id:'p3',name:'قلادة اختصاص',category:'special-necklaces',price:22000,desc:'قلادة مميزة بتفاصيل دقيقة.'},
-  {id:'p4',name:'طقم هدية مشمس',category:'sets',price:35000,desc:'طقم متناسق مناسب للهدايا.'},
-  {id:'p5',name:'قلم أنيق',category:'pens',price:10000,desc:'قلم عملي بتصميم أنيق.'},
-  {id:'p6',name:'تيبل لامب صغير',category:'table-lamps',price:45000,desc:'إضاءة لطيفة للمكتب أو الطاولة.'},
-  {id:'p7',name:'دفتر Sunny',category:'stationery',price:8000,desc:'دفتر عملي للكتابة والملاحظات.'},
-  {id:'p8',name:'مدالية اسم',category:'medals',price:13000,desc:'مدالية لطيفة للاستخدام اليومي.'}
-];
+let products = [];
+async function loadProducts(){
+  const snap = await getDocs(collection(db,'products'));
+  products = snap.docs.map(d=>{
+    const x = d.data();
+    return {
+      id: d.id,
+      name: String(x.Name ?? x.name ?? '').trim(),
+      category: String(x.categoryId ?? '').trim(),
+      price: Number(x.Price ?? x.price ?? 0),
+      desc: String(x.description ?? '').trim(),
+      status: String(x.Status ?? x.status ?? '').trim().toLowerCase(),
+      sortOrder: Number(x.sortOrder ?? 0)
+    };
+  }).filter(p=>p.status==='active').sort((a,b)=>a.sortOrder-b.sortOrder);
+}
 let cart = JSON.parse(localStorage.getItem('sunnyCart') || '{}');
 const app = document.getElementById('app');
 const sideMenu = document.getElementById('sideMenu');
@@ -66,4 +77,9 @@ document.addEventListener('click',e=>{const el=e.target.closest('[data-route]');
 function openCheckout(){document.getElementById('cartPanel').hidden=true;document.getElementById('checkoutPanel').hidden=false;document.getElementById('checkoutTotal').textContent=`الإجمالي النهائي: ${money(cartSubtotal()+DELIVERY_FEE)} (يشمل التوصيل ${money(DELIVERY_FEE)})`;}
 document.getElementById('globalSearch').addEventListener('input',e=>{const q=e.target.value.trim();const list=products.filter(p=>!q||p.name.includes(q)||p.desc.includes(q));document.getElementById('searchResults').innerHTML=list.map(p=>`<button class="search-result" data-product="${p.id}"><span>${p.name}</span><strong>${money(p.price)}</strong></button>`).join('')||'<p class="muted">لا توجد نتائج.</p>';});
 document.getElementById('checkoutForm').addEventListener('submit',e=>{e.preventDefault();if(!cartCount())return;const data=Object.fromEntries(new FormData(e.target));showToast('تم استلام طلبك تجريبيًا');setTimeout(()=>{alert(`شكرًا ${data.name}!\nسيتم التواصل معك عبر واتساب لتأكيد الطلب.\nالإجمالي: ${money(cartSubtotal()+DELIVERY_FEE)}`);cart={};saveCart();e.target.reset();document.getElementById('checkoutPanel').hidden=true;route();},150);});
-window.addEventListener('hashchange',route);route();updateCartCount();
+window.addEventListener('hashchange',route);
+loadProducts().then(()=>{
+  Object.keys(cart).forEach(id=>{ if(!getProduct(id)) delete cart[id]; });
+  saveCart();
+  route();
+}).catch(err=>{ console.error(err); showToast('تعذر تحميل المنتجات'); route(); });

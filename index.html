@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sunny Store</title><meta name="description" content="Sunny Store">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="container header"><a class="brand" href="/">Sunny Store</a><button id="cartBtn">السلة <span id="cartCount">0</span></button></div></header>
+<main>
+<section class="container hero"><h1>Sunny Store</h1><p>تسوّق منتجاتنا بسهولة.</p><label for="search">ابحث عن منتج</label><input id="search" type="search" placeholder="اكتب اسم المنتج...">
+</section>
+<section class="container"><h2>الأقسام</h2><div id="categories" class="categories"><div class="empty">سيتم تحميل الأقسام من قاعدة البيانات.</div></div></section>
+<section class="container"><div class="section-title"><h2>المنتجات</h2><span id="status"></span></div><div id="products" class="products"><div class="empty">سيتم تحميل المنتجات من قاعدة البيانات.</div></div></section>
+</main>
+<div id="cart" class="drawer-wrap"><div id="overlay" class="overlay"></div><aside class="drawer"><div class="drawer-head"><h2>السلة</h2><button id="closeCart">×</button></div><div id="cartItems" class="cart-items"></div><div class="cart-foot"><b>المجموع: <span id="total">0</span> د.ع</b><button id="checkout" class="primary">تثبيت الطلب</button></div></aside></div>
+<div id="modal" class="modal"><div class="modal-card"><div class="drawer-head"><h2>معلومات الطلب</h2><button id="closeModal">×</button></div><form id="orderForm"><label>الاسم<input name="name" required></label><label>رقم الهاتف<input name="phone" type="tel" required></label><label>المحافظة<input name="governorate" required></label><label>العنوان<textarea name="address" required></textarea></label><label>ملاحظات<textarea name="notes"></textarea></label><button class="primary">إرسال الطلب</button><p id="message"></p></form></div></div>
+<script type="module" src="app.js"></script>
+</body></html>

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>لوحة إدارة Sunny Store</title>
+<style>
+body{font-family:Cairo,system-ui,sans-serif;background:#fffdf5;margin:0;padding:16px;color:#2b2618}
+.box{max-width:640px;margin:0 auto}
+input,select,textarea,button{font:inherit;width:100%;padding:10px;margin:4px 0 10px;border:1px solid #d8cfae;border-radius:10px;box-sizing:border-box}
+button{background:#8a6a00;color:#fff;border:0;cursor:pointer;width:auto;padding:10px 16px;margin:0}
+button.sec{background:#eee6c8;color:#2b2618}
+button.del{background:#b3261e}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;border:1px solid #eee6c8;border-radius:12px;padding:10px;margin-bottom:8px}
+.row small{color:#777;display:block}
+.acts{display:flex;gap:6px}
+.chk{display:flex;align-items:center;gap:8px}
+.chk input{width:auto;margin:0}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.err{color:#b3261e}
+</style>
+</head>
+<body>
+<div class="box">
+<h1>لوحة إدارة Sunny Store</h1>
+
+<div id="login">
+  <input id="email" type="email" placeholder="البريد الإلكتروني" autocomplete="username">
+  <input id="pass" type="password" placeholder="كلمة المرور" autocomplete="current-password">
+  <button id="loginBtn">تسجيل الدخول</button>
+  <p id="err" class="err"></p>
+</div>
+
+<div id="panel" hidden>
+  <div class="bar"><small id="who"></small><button class="sec" id="logout">خروج</button></div>
+  <h2 id="formTitle">إضافة منتج</h2>
+  <input id="name" placeholder="اسم المنتج">
+  <input id="price" type="number" inputmode="numeric" placeholder="السعر بالدينار (أرقام فقط)">
+  <select id="cat"></select>
+  <textarea id="desc" rows="3" placeholder="الوصف"></textarea>
+  <input id="stock" type="number" inputmode="numeric" placeholder="المخزون">
+  <input id="sort" type="number" inputmode="numeric" placeholder="الترتيب (رقم)">
+  <select id="status"><option value="active">ظاهر في المتجر</option><option value="hidden">مخفي</option></select>
+  <label class="chk"><input id="feat" type="checkbox"> منتج مميز (يظهر في «الأكثر رواجًا»)</label>
+  <div class="acts" style="margin:10px 0"><button id="save">حفظ</button><button class="sec" id="reset">مسح النموذج</button></div>
+  <p id="msg"></p>
+  <h2>المنتجات</h2>
+  <div id="list"></div>
+</div>
+</div>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import {getFirestore,collection,getDocs,doc,setDoc,addDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {firebaseConfig} from "./firebase-config.js";
+
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+const $=id=>document.getElementById(id);
+const CATS={brooches:'بروشات','special-necklaces':'قلادات اختصاص',accessories:'إكسسوارات',sets:'أطقم',pens:'أقلام','table-lamps':'تيبل لامب',stationery:'قرطاسية',medals:'مداليات'};
+$('cat').innerHTML='<option value="">— اختر القسم —</option>'+Object.entries(CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+let editing=null,old={};
+const norm=d=>{const x={};Object.entries(d).forEach(([k,v])=>x[k.trim().toLowerCase()]=v);return x};
+
+onAuthStateChanged(auth,u=>{
+  $('login').hidden=!!u;$('panel').hidden=!u;
+  if(u){$('who').textContent=u.email;load();}
+});
+$('loginBtn').onclick=async()=>{
+  $('err').textContent='';
+  try{await signInWithEmailAndPassword(auth,$('email').value.trim(),$('pass').value);}
+  catch(e){$('err').textContent='تعذر تسجيل الدخول، تأكد من البريد وكلمة المرور.';}
+};
+$('logout').onclick=()=>signOut(auth);
+$('pass').addEventListener('keydown',e=>{if(e.key==='Enter')$('loginBtn').click();});
+
+function resetForm(){
+  editing=null;old={};
+  ['name','price','desc','stock','sort'].forEach(i=>$(i).value='');
+  $('status').value='active';$('feat').checked=false;$('cat').selectedIndex=0;
+  $('formTitle').textContent='إضافة منتج';
+}
+$('reset').onclick=()=>{resetForm();$('msg').textContent='';};
+
+async function load(){
+  const s=await getDocs(collection(db,'products'));
+  const box=$('list');box.innerHTML='';
+  [...s.docs].sort((a,b)=>Number(norm(a.data()).sortorder||0)-Number(norm(b.data()).sortorder||0)).forEach(d=>{
+    const x=norm(d.data());
+    const row=document.createElement('div');row.className='row';
+    const info=document.createElement('div');
+    const t=document.createElement('strong');t.textContent=x.name||'(بدون اسم)';
+    const sm=document.createElement('small');
+    sm.textContent=`${Number(x.price||0).toLocaleString('en')} د.ع · ${CATS[String(x.categoryid||'').trim()]||'قسم غير معروف'} · ${String(x.status||'').trim().toLowerCase()==='active'?'ظاهر':'مخفي'}`;
+    info.append(t,sm);
+    const acts=document.createElement('div');acts.className='acts';
+    const eb=document.createElement('button');eb.className='sec';eb.textContent='تعديل';
+    eb.onclick=()=>{
+      editing=d.id;old={images:x.images||[],createdAt:x.createdat||null};
+      $('name').value=String(x.name||'').trim();$('price').value=x.price??'';
+      $('cat').value=String(x.categoryid||'').trim();$('desc').value=String(x.description||'').trim();
+      if($('cat').selectedIndex<0)$('cat').value='';
+      $('stock').value=x.stock??'';$('sort').value=x.sortorder??'';
+      $('status').value=String(x.status||'').trim().toLowerCase()==='active'?'active':'hidden';
+      $('feat').checked=Boolean(x.isfeatured);
+      $('formTitle').textContent='تعديل منتج';window.scrollTo(0,0);
+    };
+    const db2=document.createElement('button');db2.className='del';db2.textContent='حذف';
+    db2.onclick=async()=>{
+      if(!confirm('حذف هذا المنتج نهائيًا؟'))return;
+      try{await deleteDoc(doc(db,'products',d.id));load();}catch(e){$('msg').textContent='تعذر الحذف: '+e.message;}
+    };
+    acts.append(eb,db2);row.append(info,acts);box.append(row);
+  });
+  if(!s.size)box.textContent='لا توجد منتجات بعد.';
+}
+
+$('save').onclick=async()=>{
+  const data={
+    name:$('name').value.trim(),price:Number($('price').value)||0,categoryId:$('cat').value,
+    description:$('desc').value.trim(),stock:Number($('stock').value)||0,status:$('status').value,
+    isFeatured:$('feat').checked,sortOrder:Number($('sort').value)||0
+  };
+  if(!data.name){$('msg').textContent='اكتب اسم المنتج.';return;}
+  if(!data.categoryId){$('msg').textContent='اختر القسم.';return;}
+  $('save').disabled=true;
+  try{
+    if(editing)await setDoc(doc(db,'products',editing),{...data,images:old.images||[],createdAt:old.createdAt||serverTimestamp()});
+    else await addDoc(collection(db,'products'),{...data,images:[],createdAt:serverTimestamp()});
+    resetForm();$('msg').textContent='تم الحفظ ✓';load();
+  }catch(e){$('msg').textContent='تعذر الحفظ: '+e.message;}
+  $('save').disabled=false;
+};
+</script>
+</body>
+</html>

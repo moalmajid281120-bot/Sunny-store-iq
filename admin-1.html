@@ -24,14 +24,12 @@ button.del{background:#b3261e}
 <body>
 <div class="box">
 <h1>لوحة إدارة Sunny Store</h1>
-
 <div id="login">
   <input id="email" type="email" placeholder="البريد الإلكتروني" autocomplete="username">
   <input id="pass" type="password" placeholder="كلمة المرور" autocomplete="current-password">
   <button id="loginBtn">تسجيل الدخول</button>
   <p id="err" class="err"></p>
 </div>
-
 <div id="panel" hidden>
   <div class="bar"><small id="who"></small><button class="sec" id="logout">خروج</button></div>
   <h2 id="formTitle">إضافة منتج</h2>
@@ -39,8 +37,13 @@ button.del{background:#b3261e}
   <input id="price" type="number" inputmode="numeric" placeholder="السعر بالدينار (أرقام فقط)">
   <select id="cat"></select>
   <textarea id="desc" rows="3" placeholder="الوصف"></textarea>
-  <input id="stock" type="number" inputmode="numeric" placeholder="المخزون">
-  <input id="sort" type="number" inputmode="numeric" placeholder="الترتيب (رقم)">
+  <label>صور المنتج (حتى 4، الأولى هي الرئيسية)</label>
+  <input id="files" type="file" accept="image/*" multiple>
+  <div id="thumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"></div>
+  <label class="chk"><input id="hasOpt" type="checkbox"> للمنتج قياسات / خيارات</label>
+  <div id="optBox" hidden><input id="optTitle" placeholder="اسم الخيار (مثل: رقم القلم)"><input id="optVals" placeholder="الأرقام مفصولة بفاصلة: 1,2,3,4,5"></div>
+  <input id="stock" type="number" inputmode="numeric" placeholder="المخزون (عدد القطع)">
+  <input id="sort" type="number" inputmode="numeric" placeholder="الترتيب (الأصغر يظهر أولاً)">
   <select id="status"><option value="active">ظاهر في المتجر</option><option value="hidden">مخفي</option></select>
   <label class="chk"><input id="feat" type="checkbox"> منتج مميز (يظهر في «الأكثر رواجًا»)</label>
   <div class="acts" style="margin:10px 0"><button id="save">حفظ</button><button class="sec" id="reset">مسح النموذج</button></div>
@@ -49,40 +52,35 @@ button.del{background:#b3261e}
   <div id="list"></div>
 </div>
 </div>
-
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import {getFirestore,collection,getDocs,doc,setDoc,addDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {getFirestore,collection,getDocs,getDoc,doc,setDoc,addDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
-
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
 const $=id=>document.getElementById(id);
 const CATS={brooches:'بروشات','special-necklaces':'قلادات اختصاص',accessories:'إكسسوارات',sets:'أطقم',pens:'أقلام','table-lamps':'تيبل لامب',stationery:'قرطاسية',medals:'مداليات'};
 $('cat').innerHTML='<option value="">— اختر القسم —</option>'+Object.entries(CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
-let editing=null,old={};
+let editing=null,old={},imgs=[],removed=[];
 const norm=d=>{const x={};Object.entries(d).forEach(([k,v])=>x[k.trim().toLowerCase()]=v);return x};
-
-onAuthStateChanged(auth,u=>{
-  $('login').hidden=!!u;$('panel').hidden=!u;
-  if(u){$('who').textContent=u.email;load();}
-});
-$('loginBtn').onclick=async()=>{
-  $('err').textContent='';
-  try{await signInWithEmailAndPassword(auth,$('email').value.trim(),$('pass').value);}
-  catch(e){$('err').textContent='تعذر تسجيل الدخول، تأكد من البريد وكلمة المرور.';}
-};
+const loadImg=f=>new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{URL.revokeObjectURL(u);ok(i)};i.onerror=no;i.src=u});
+const shrink=(i,max,q)=>{const r=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*r);c.height=Math.round(i.height*r);c.getContext('2d').drawImage(i,0,0,c.width,c.height);return c.toDataURL('image/jpeg',q)};
+async function mkBig(f){const i=await loadImg(f);let q=.8,d=shrink(i,1000,q);while(d.length>200000&&q>.4){q-=.1;d=shrink(i,1000,q)}return d}
+const thumbOf=d=>new Promise(ok=>{const i=new Image();i.onload=()=>ok(shrink(i,400,.7));i.src=d});
+function renderThumbs(){const b=$('thumbs');b.innerHTML='';imgs.forEach((m,k)=>{const w=document.createElement('div'),i=document.createElement('img'),x=document.createElement('button');i.src=m.big;i.style.cssText='width:80px;height:80px;object-fit:cover;border-radius:8px;display:block';x.textContent='×';x.className='del';x.style.cssText='padding:2px 10px;margin-top:4px';x.onclick=()=>{if(m.id)removed.push(m.id);imgs.splice(k,1);renderThumbs()};w.append(i,x);b.append(w)})}
+$('files').onchange=async e=>{for(const f of e.target.files){if(imgs.length>=4){$('msg').textContent='الحد الأقصى 4 صور.';break}try{imgs.push({big:await mkBig(f)})}catch(x){$('msg').textContent='تعذر قراءة إحدى الصور.'}}e.target.value='';renderThumbs()};
+$('hasOpt').onchange=()=>{$('optBox').hidden=!$('hasOpt').checked};
+onAuthStateChanged(auth,u=>{$('login').hidden=!!u;$('panel').hidden=!u;if(u){$('who').textContent=u.email;load();}});
+$('loginBtn').onclick=async()=>{$('err').textContent='';try{await signInWithEmailAndPassword(auth,$('email').value.trim(),$('pass').value);}catch(e){$('err').textContent='تعذر تسجيل الدخول، تأكد من البريد وكلمة المرور.';}};
 $('logout').onclick=()=>signOut(auth);
 $('pass').addEventListener('keydown',e=>{if(e.key==='Enter')$('loginBtn').click();});
-
 function resetForm(){
-  editing=null;old={};
-  ['name','price','desc','stock','sort'].forEach(i=>$(i).value='');
-  $('status').value='active';$('feat').checked=false;$('cat').selectedIndex=0;
+  editing=null;old={};imgs=[];removed=[];renderThumbs();
+  ['name','price','desc','stock','sort','optTitle','optVals'].forEach(i=>$(i).value='');
+  $('status').value='active';$('feat').checked=false;$('hasOpt').checked=false;$('optBox').hidden=true;$('cat').selectedIndex=0;
   $('formTitle').textContent='إضافة منتج';
 }
 $('reset').onclick=()=>{resetForm();$('msg').textContent='';};
-
 async function load(){
   const s=await getDocs(collection(db,'products'));
   const box=$('list');box.innerHTML='';
@@ -96,38 +94,47 @@ async function load(){
     info.append(t,sm);
     const acts=document.createElement('div');acts.className='acts';
     const eb=document.createElement('button');eb.className='sec';eb.textContent='تعديل';
-    eb.onclick=()=>{
-      editing=d.id;old={images:x.images||[],createdAt:x.createdat||null};
+    eb.onclick=async()=>{
+      editing=d.id;old={createdAt:x.createdat||null};
       $('name').value=String(x.name||'').trim();$('price').value=x.price??'';
-      $('cat').value=String(x.categoryid||'').trim();$('desc').value=String(x.description||'').trim();
-      if($('cat').selectedIndex<0)$('cat').value='';
+      $('cat').value=String(x.categoryid||'').trim();if($('cat').selectedIndex<0)$('cat').value='';
+      $('desc').value=String(x.description||'').trim();
       $('stock').value=x.stock??'';$('sort').value=x.sortorder??'';
       $('status').value=String(x.status||'').trim().toLowerCase()==='active'?'active':'hidden';
       $('feat').checked=Boolean(x.isfeatured);
+      $('hasOpt').checked=Array.isArray(x.options)&&x.options.length>0;$('optBox').hidden=!$('hasOpt').checked;
+      $('optTitle').value=x.optiontitle||'';$('optVals').value=(x.options||[]).join(',');
       $('formTitle').textContent='تعديل منتج';window.scrollTo(0,0);
+      imgs=[];removed=[];
+      for(const iid of (x.imageids||[])){try{const g=await getDoc(doc(db,'images',iid));if(g.exists())imgs.push({id:iid,big:g.data().big})}catch(e){}}
+      renderThumbs();
     };
     const db2=document.createElement('button');db2.className='del';db2.textContent='حذف';
     db2.onclick=async()=>{
       if(!confirm('حذف هذا المنتج نهائيًا؟'))return;
-      try{await deleteDoc(doc(db,'products',d.id));load();}catch(e){$('msg').textContent='تعذر الحذف: '+e.message;}
+      try{for(const iid of (x.imageids||[]))await deleteDoc(doc(db,'images',iid)).catch(()=>{});await deleteDoc(doc(db,'products',d.id));load();}catch(e){$('msg').textContent='تعذر الحذف: '+e.message;}
     };
-    acts.append(eb,db2);row.append(info,acts);box.append(row);
+    acts.append(eb,db2);
+    if(x.thumb){const im=document.createElement('img');im.src=x.thumb;im.style.cssText='width:48px;height:48px;object-fit:cover;border-radius:8px';row.append(im)}
+    row.append(info,acts);box.append(row);
   });
   if(!s.size)box.textContent='لا توجد منتجات بعد.';
 }
-
 $('save').onclick=async()=>{
-  const data={
-    name:$('name').value.trim(),price:Number($('price').value)||0,categoryId:$('cat').value,
-    description:$('desc').value.trim(),stock:Number($('stock').value)||0,status:$('status').value,
-    isFeatured:$('feat').checked,sortOrder:Number($('sort').value)||0
-  };
+  const data={name:$('name').value.trim(),price:Number($('price').value)||0,categoryId:$('cat').value,description:$('desc').value.trim(),stock:Number($('stock').value)||0,status:$('status').value,isFeatured:$('feat').checked,sortOrder:Number($('sort').value)||0};
   if(!data.name){$('msg').textContent='اكتب اسم المنتج.';return;}
   if(!data.categoryId){$('msg').textContent='اختر القسم.';return;}
-  $('save').disabled=true;
+  $('save').disabled=true;$('msg').textContent='جارٍ الحفظ...';
   try{
-    if(editing)await setDoc(doc(db,'products',editing),{...data,images:old.images||[],createdAt:old.createdAt||serverTimestamp()});
-    else await addDoc(collection(db,'products'),{...data,images:[],createdAt:serverTimestamp()});
+    const ids=[];
+    for(const m of imgs){if(!m.id){const r=await addDoc(collection(db,'images'),{big:m.big,createdAt:serverTimestamp()});m.id=r.id}ids.push(m.id)}
+    data.imageIds=ids;data.thumb=imgs.length?await thumbOf(imgs[0].big):'';
+    const ho=$('hasOpt').checked;
+    data.optionTitle=ho?$('optTitle').value.trim():'';
+    data.options=ho?$('optVals').value.split(/[,،]/).map(s=>s.trim()).filter(Boolean):[];
+    if(editing)await setDoc(doc(db,'products',editing),{...data,createdAt:old.createdAt||serverTimestamp()});
+    else await addDoc(collection(db,'products'),{...data,createdAt:serverTimestamp()});
+    for(const iid of removed)await deleteDoc(doc(db,'images',iid)).catch(()=>{});
     resetForm();$('msg').textContent='تم الحفظ ✓';load();
   }catch(e){$('msg').textContent='تعذر الحفظ: '+e.message;}
   $('save').disabled=false;

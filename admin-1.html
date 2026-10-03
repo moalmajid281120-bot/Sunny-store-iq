@@ -32,6 +32,8 @@ button.del{background:#b3261e}
 </div>
 <div id="panel" hidden>
   <div class="bar"><small id="who"></small><button class="sec" id="logout">خروج</button></div>
+  <div class="acts" style="margin-bottom:12px"><button id="tabP">المنتجات</button><button id="tabO" class="sec">الطلبات</button></div>
+  <div id="prodSec">
   <h2 id="formTitle">إضافة منتج</h2>
   <input id="name" placeholder="اسم المنتج">
   <input id="price" type="number" inputmode="numeric" placeholder="السعر بالدينار (أرقام فقط)">
@@ -49,19 +51,30 @@ button.del{background:#b3261e}
   <div class="acts" style="margin:10px 0"><button id="save">حفظ</button><button class="sec" id="reset">مسح النموذج</button></div>
   <p id="msg"></p>
   <h2>المنتجات</h2>
+  <select id="fcat"></select>
+  <input id="fq" placeholder="بحث بالاسم داخل القسم">
+  <select id="fst"><option value="">الكل</option><option value="active">الظاهر</option><option value="hidden">المخفي</option></select>
   <div id="list"></div>
+  </div>
+  <div id="ordSec" hidden>
+    <h2>الطلبات</h2>
+    <select id="ofst"><option value="">كل الحالات</option><option value="new">جديد</option><option value="contacted">تم التواصل</option><option value="preparing">قيد التجهيز</option><option value="shipped">تم الشحن</option><option value="done">مكتمل</option><option value="cancelled">ملغي</option></select>
+    <button class="sec" id="oref">تحديث</button>
+    <div id="olist" style="margin-top:10px"></div>
+  </div>
 </div>
 </div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import {getFirestore,collection,getDocs,getDoc,doc,setDoc,addDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {getFirestore,collection,getDocs,getDoc,doc,setDoc,addDoc,deleteDoc,updateDoc,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
 const $=id=>document.getElementById(id);
 const CATS={brooches:'بروشات','special-necklaces':'قلادات اختصاص',accessories:'إكسسوارات',sets:'أطقم',pens:'أقلام','table-lamps':'تيبل لامب',stationery:'قرطاسية',medals:'مداليات'};
 $('cat').innerHTML='<option value="">— اختر القسم —</option>'+Object.entries(CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
-let editing=null,old={},imgs=[],removed=[];
+let editing=null,old={},imgs=[],removed=[],cache=[];
+$('fcat').innerHTML=$('cat').innerHTML;$('fcat').onchange=()=>load();$('fq').oninput=()=>draw();$('fst').onchange=()=>draw();
 const norm=d=>{const x={};Object.entries(d).forEach(([k,v])=>x[k.trim().toLowerCase()]=v);return x};
 const loadImg=f=>new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{URL.revokeObjectURL(u);ok(i)};i.onerror=no;i.src=u});
 const shrink=(i,max,q)=>{const r=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*r);c.height=Math.round(i.height*r);c.getContext('2d').drawImage(i,0,0,c.width,c.height);return c.toDataURL('image/jpeg',q)};
@@ -82,9 +95,18 @@ function resetForm(){
 }
 $('reset').onclick=()=>{resetForm();$('msg').textContent='';};
 async function load(){
-  const s=await getDocs(collection(db,'products'));
+  const c=$('fcat').value;
+  if(!c){cache=[];return draw()}
+  $('list').textContent='جارٍ التحميل...';
+  const s=await getDocs(query(collection(db,'products'),where('categoryId','==',c)));
+  cache=[...s.docs];draw();
+}
+function draw(){
   const box=$('list');box.innerHTML='';
-  [...s.docs].sort((a,b)=>Number(norm(a.data()).sortorder||0)-Number(norm(b.data()).sortorder||0)).forEach(d=>{
+  if(!$('fcat').value){box.textContent='اختر قسمًا لعرض منتجاته.';return}
+  const q=$('fq').value.trim(),st=$('fst').value;
+  const rows=cache.filter(d=>{const x=norm(d.data());return (!q||String(x.name||'').includes(q))&&(!st||(String(x.status||'').trim().toLowerCase()==='active'?'active':'hidden')===st)});
+  rows.sort((a,b)=>Number(norm(a.data()).sortorder||0)-Number(norm(b.data()).sortorder||0)).forEach(d=>{
     const x=norm(d.data());
     const row=document.createElement('div');row.className='row';
     const info=document.createElement('div');
@@ -118,8 +140,33 @@ async function load(){
     if(x.thumb){const im=document.createElement('img');im.src=x.thumb;im.style.cssText='width:48px;height:48px;object-fit:cover;border-radius:8px';row.append(im)}
     row.append(info,acts);box.append(row);
   });
-  if(!s.size)box.textContent='لا توجد منتجات بعد.';
+  if(!rows.length)box.textContent='لا توجد منتجات مطابقة.';
 }
+const ST={new:'جديد',contacted:'تم التواصل',preparing:'قيد التجهيز',shipped:'تم الشحن',done:'مكتمل',cancelled:'ملغي'};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const n=v=>Number(v||0).toLocaleString('en');
+let ords=[],openId='';
+$('tabP').onclick=()=>{$('prodSec').hidden=false;$('ordSec').hidden=true;$('tabP').className='';$('tabO').className='sec'};
+$('tabO').onclick=()=>{$('prodSec').hidden=true;$('ordSec').hidden=false;$('tabP').className='sec';$('tabO').className='';loadOrders()};
+$('ofst').onchange=()=>drawOrders();$('oref').onclick=()=>loadOrders();
+async function loadOrders(){
+  $('olist').textContent='جارٍ التحميل...';
+  try{const q=await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc'),limit(100)));ords=q.docs.map(d=>({id:d.id,o:d.data()}));drawOrders()}
+  catch(e){$('olist').textContent='تعذر تحميل الطلبات: '+e.message}
+}
+function drawOrders(){
+  const f=$('ofst').value,list=ords.filter(x=>!f||x.o.status===f);
+  $('olist').innerHTML=list.length?list.map(({id,o})=>{
+    const c=o.customer||{},t=o.createdAt&&o.createdAt.toDate?o.createdAt.toDate().toLocaleString('ar-IQ'):'';
+    return `<details class="row" style="display:block"${id===openId?' open':''}><summary><strong>#${id.slice(0,6).toUpperCase()}</strong> · ${esc(c.name)} · ${n(o.total)} د.ع · <b>${ST[o.status]||esc(o.status)}</b><small>${t}</small></summary>
+<p>الهاتف: <a href="tel:${esc(c.phone)}">${esc(c.phone)}</a><br>المحافظة: ${esc(c.governorate)}<br>العنوان: ${esc(c.address)}${c.notes?'<br>ملاحظات: '+esc(c.notes):''}</p>
+<ul>${(o.items||[]).map(i=>`<li>${esc(i.name)}${i.option?' — '+esc(i.option):''} × ${Number(i.qty)} = ${n(Number(i.price)*Number(i.qty))}</li>`).join('')}</ul>
+<p>المنتجات: ${n(o.subtotal)} · التوصيل: ${n(o.delivery)} · <b>الإجمالي: ${n(o.total)} د.ع</b></p>
+<select data-st="${id}">${Object.entries(ST).map(([k,v])=>`<option value="${k}"${k===o.status?' selected':''}>${v}</option>`).join('')}</select>
+<button class="del" data-del="${id}">حذف الطلب</button></details>`}).join(''):'لا توجد طلبات.';
+}
+$('olist').onchange=async e=>{const id=e.target.dataset.st;if(!id)return;openId=id;try{await updateDoc(doc(db,'orders',id),{status:e.target.value});ords.find(x=>x.id===id).o.status=e.target.value;drawOrders()}catch(x){alert('تعذر التحديث: '+x.message)}};
+$('olist').onclick=async e=>{const id=e.target.dataset.del;if(!id||!confirm('حذف هذا الطلب نهائيًا؟'))return;try{await deleteDoc(doc(db,'orders',id));ords=ords.filter(x=>x.id!==id);drawOrders()}catch(x){alert('تعذر الحذف: '+x.message)}};
 $('save').onclick=async()=>{
   const data={name:$('name').value.trim(),price:Number($('price').value)||0,categoryId:$('cat').value,description:$('desc').value.trim(),stock:Number($('stock').value)||0,status:$('status').value,isFeatured:$('feat').checked,sortOrder:Number($('sort').value)||0};
   if(!data.name){$('msg').textContent='اكتب اسم المنتج.';return;}
@@ -135,7 +182,7 @@ $('save').onclick=async()=>{
     if(editing)await setDoc(doc(db,'products',editing),{...data,createdAt:old.createdAt||serverTimestamp()});
     else await addDoc(collection(db,'products'),{...data,createdAt:serverTimestamp()});
     for(const iid of removed)await deleteDoc(doc(db,'images',iid)).catch(()=>{});
-    resetForm();$('msg').textContent='تم الحفظ ✓';load();
+    $('fcat').value=data.categoryId;resetForm();$('msg').textContent='تم الحفظ ✓';load();
   }catch(e){$('msg').textContent='تعذر الحفظ: '+e.message;}
   $('save').disabled=false;
 };

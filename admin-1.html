@@ -14,11 +14,14 @@ button.sec{background:#eee6c8;color:#2b2618}
 button.del{background:#b3261e}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;border:1px solid #eee6c8;border-radius:12px;padding:10px;margin-bottom:8px}
 .row small{color:#777;display:block}
-.acts{display:flex;gap:6px}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
 .chk{display:flex;align-items:center;gap:8px}
 .chk input{width:auto;margin:0}
 .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .err{color:#b3261e}
+.order-item{display:flex;gap:8px;align-items:center;margin:6px 0}
+.order-thumb{width:44px;height:44px;min-width:44px;border-radius:8px;overflow:hidden;background:#fff4c9;display:flex;align-items:center;justify-content:center}
+.order-thumb img{width:100%;height:100%;object-fit:cover}
 </style>
 </head>
 <body>
@@ -32,7 +35,7 @@ button.del{background:#b3261e}
 </div>
 <div id="panel" hidden>
   <div class="bar"><small id="who"></small><button class="sec" id="logout">خروج</button></div>
-  <div class="acts" style="margin-bottom:12px"><button id="tabP">المنتجات</button><button id="tabO" class="sec">الطلبات</button></div>
+  <div class="acts" style="margin-bottom:12px"><button id="tabP">المنتجات</button><button id="tabO" class="sec">الطلبات</button><button id="backupBtn" class="sec">تنزيل نسخة احتياطية</button></div>
   <div id="prodSec">
   <h2 id="formTitle">إضافة منتج</h2>
   <input id="name" placeholder="اسم المنتج">
@@ -46,14 +49,14 @@ button.del{background:#b3261e}
   <div id="optBox" hidden><input id="optTitle" placeholder="اسم الخيار (مثل: رقم القلم)"><input id="optVals" placeholder="الأرقام مفصولة بفاصلة: 1,2,3,4,5"></div>
   <input id="stock" type="number" inputmode="numeric" placeholder="المخزون (عدد القطع)">
   <input id="sort" type="number" inputmode="numeric" placeholder="الترتيب (الأصغر يظهر أولاً)">
-  <select id="status"><option value="active">ظاهر في المتجر</option><option value="hidden">مخفي</option></select>
+  <select id="status"><option value="active">ظاهر في المتجر</option><option value="unavailable">غير متوفر حاليًا</option><option value="hidden">مخفي</option></select>
   <label class="chk"><input id="feat" type="checkbox"> منتج مميز (يظهر في «الأكثر رواجًا»)</label>
   <div class="acts" style="margin:10px 0"><button id="save">حفظ</button><button class="sec" id="reset">مسح النموذج</button></div>
   <p id="msg"></p>
   <h2>المنتجات</h2>
   <select id="fcat"></select>
   <input id="fq" placeholder="بحث بالاسم داخل القسم">
-  <select id="fst"><option value="">الكل</option><option value="active">الظاهر</option><option value="hidden">المخفي</option></select>
+  <select id="fst"><option value="">الكل</option><option value="active">الظاهر</option><option value="unavailable">غير المتوفر</option><option value="hidden">المخفي</option></select>
   <div id="list"></div>
   </div>
   <div id="ordSec" hidden>
@@ -72,6 +75,7 @@ import {firebaseConfig} from "./firebase-config.js";
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
 const $=id=>document.getElementById(id);
 const CATS={brooches:'بروشات','special-necklaces':'قلادات اختصاص',accessories:'إكسسوارات',sets:'أطقم',pens:'أقلام','table-lamps':'تيبل لامب',stationery:'قرطاسية',medals:'مداليات'};
+const PST={active:'ظاهر',unavailable:'غير متوفر',hidden:'مخفي'};
 $('cat').innerHTML='<option value="">— اختر القسم —</option>'+Object.entries(CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
 let editing=null,old={},imgs=[],removed=[],cache=[];
 $('fcat').innerHTML=$('cat').innerHTML;$('fcat').onchange=()=>load();$('fq').oninput=()=>draw();$('fst').onchange=()=>draw();
@@ -105,14 +109,14 @@ function draw(){
   const box=$('list');box.innerHTML='';
   if(!$('fcat').value){box.textContent='اختر قسمًا لعرض منتجاته.';return}
   const q=$('fq').value.trim(),st=$('fst').value;
-  const rows=cache.filter(d=>{const x=norm(d.data());return (!q||String(x.name||'').includes(q))&&(!st||(String(x.status||'').trim().toLowerCase()==='active'?'active':'hidden')===st)});
+  const rows=cache.filter(d=>{const x=norm(d.data()),status=String(x.status||'').trim().toLowerCase();return (!q||String(x.name||'').includes(q))&&(!st||status===st)});
   rows.sort((a,b)=>Number(norm(a.data()).sortorder||0)-Number(norm(b.data()).sortorder||0)).forEach(d=>{
-    const x=norm(d.data());
+    const x=norm(d.data()),status=String(x.status||'').trim().toLowerCase();
     const row=document.createElement('div');row.className='row';
     const info=document.createElement('div');
     const t=document.createElement('strong');t.textContent=x.name||'(بدون اسم)';
     const sm=document.createElement('small');
-    sm.textContent=`${Number(x.price||0).toLocaleString('en')} د.ع · ${CATS[String(x.categoryid||'').trim()]||'قسم غير معروف'} · ${String(x.status||'').trim().toLowerCase()==='active'?'ظاهر':'مخفي'}`;
+    sm.textContent=`${Number(x.price||0).toLocaleString('en')} د.ع · ${CATS[String(x.categoryid||'').trim()]||'قسم غير معروف'} · ${PST[status]||status||'غير معروف'}`;
     info.append(t,sm);
     const acts=document.createElement('div');acts.className='acts';
     const eb=document.createElement('button');eb.className='sec';eb.textContent='تعديل';
@@ -122,7 +126,7 @@ function draw(){
       $('cat').value=String(x.categoryid||'').trim();if($('cat').selectedIndex<0)$('cat').value='';
       $('desc').value=String(x.description||'').trim();
       $('stock').value=x.stock??'';$('sort').value=x.sortorder??'';
-      $('status').value=String(x.status||'').trim().toLowerCase()==='active'?'active':'hidden';
+      $('status').value=['active','unavailable','hidden'].includes(status)?status:'hidden';
       $('feat').checked=Boolean(x.isfeatured);
       $('hasOpt').checked=Array.isArray(x.options)&&x.options.length>0;$('optBox').hidden=!$('hasOpt').checked;
       $('optTitle').value=x.optiontitle||'';$('optVals').value=(x.options||[]).join(',');
@@ -145,14 +149,20 @@ function draw(){
 const ST={new:'جديد',contacted:'تم التواصل',preparing:'قيد التجهيز',shipped:'تم الشحن',done:'مكتمل',cancelled:'ملغي'};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const n=v=>Number(v||0).toLocaleString('en');
-let ords=[],openId='';
+let ords=[],openId='',orderThumbs={};
 $('tabP').onclick=()=>{$('prodSec').hidden=false;$('ordSec').hidden=true;$('tabP').className='';$('tabO').className='sec'};
 $('tabO').onclick=()=>{$('prodSec').hidden=true;$('ordSec').hidden=false;$('tabP').className='sec';$('tabO').className='';loadOrders()};
 $('ofst').onchange=()=>drawOrders();$('oref').onclick=()=>loadOrders();
 async function loadOrders(){
   $('olist').textContent='جارٍ التحميل...';
-  try{const q=await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc'),limit(100)));ords=q.docs.map(d=>({id:d.id,o:d.data()}));drawOrders()}
-  catch(e){$('olist').textContent='تعذر تحميل الطلبات: '+e.message}
+  try{
+    const q=await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc'),limit(100)));
+    ords=q.docs.map(d=>({id:d.id,o:d.data()}));
+    orderThumbs={};
+    const ps=await getDocs(collection(db,'products'));
+    ps.docs.forEach(d=>{const x=norm(d.data());if(x.thumb)orderThumbs[d.id]=x.thumb});
+    drawOrders();
+  }catch(e){$('olist').textContent='تعذر تحميل الطلبات: '+e.message}
 }
 function drawOrders(){
   const f=$('ofst').value,list=ords.filter(x=>!f||x.o.status===f);
@@ -160,13 +170,40 @@ function drawOrders(){
     const c=o.customer||{},t=o.createdAt&&o.createdAt.toDate?o.createdAt.toDate().toLocaleString('ar-IQ'):'';
     return `<details class="row" style="display:block"${id===openId?' open':''}><summary><strong>#${id.slice(0,6).toUpperCase()}</strong> · ${esc(c.name)} · ${n(o.total)} د.ع · <b>${ST[o.status]||esc(o.status)}</b><small>${t}</small></summary>
 <p>الهاتف: <a href="tel:${esc(c.phone)}">${esc(c.phone)}</a><br>المحافظة: ${esc(c.governorate)}<br>العنوان: ${esc(c.address)}${c.notes?'<br>ملاحظات: '+esc(c.notes):''}</p>
-<ul>${(o.items||[]).map(i=>`<li>${esc(i.name)}${i.option?' — '+esc(i.option):''} × ${Number(i.qty)} = ${n(Number(i.price)*Number(i.qty))}</li>`).join('')}</ul>
+<div>${(o.items||[]).map(i=>`<div class="order-item"><div class="order-thumb">${orderThumbs[i.id]?`<img src="${orderThumbs[i.id]}" alt="${esc(i.name)}">`:'☀️'}</div><div>${esc(i.name)}${i.option?' — '+esc(i.option):''} × ${Number(i.qty)} = ${n(Number(i.price)*Number(i.qty))} د.ع</div></div>`).join('')}</div>
 <p>المنتجات: ${n(o.subtotal)} · التوصيل: ${n(o.delivery)} · <b>الإجمالي: ${n(o.total)} د.ع</b></p>
 <select data-st="${id}">${Object.entries(ST).map(([k,v])=>`<option value="${k}"${k===o.status?' selected':''}>${v}</option>`).join('')}</select>
 <button class="del" data-del="${id}">حذف الطلب</button></details>`}).join(''):'لا توجد طلبات.';
 }
 $('olist').onchange=async e=>{const id=e.target.dataset.st;if(!id)return;openId=id;try{await updateDoc(doc(db,'orders',id),{status:e.target.value});ords.find(x=>x.id===id).o.status=e.target.value;drawOrders()}catch(x){alert('تعذر التحديث: '+x.message)}};
 $('olist').onclick=async e=>{const id=e.target.dataset.del;if(!id||!confirm('حذف هذا الطلب نهائيًا؟'))return;try{await deleteDoc(doc(db,'orders',id));ords=ords.filter(x=>x.id!==id);drawOrders()}catch(x){alert('تعذر الحذف: '+x.message)}};
+
+function safeData(v){
+  if(v&&typeof v==='object'&&typeof v.toDate==='function'&&'seconds' in v){
+    return {__type:'firestore_timestamp',seconds:v.seconds,nanoseconds:v.nanoseconds??0};
+  }
+  if(Array.isArray(v))return v.map(safeData);
+  if(v&&typeof v==='object'){const out={};Object.entries(v).forEach(([k,x])=>out[k]=safeData(x));return out}
+  return v;
+}
+async function backupCollection(name){
+  const s=await getDocs(collection(db,name));
+  return s.docs.map(d=>({id:d.id,data:safeData(d.data())}));
+}
+$('backupBtn').onclick=async()=>{
+  const b=$('backupBtn');b.disabled=true;b.textContent='جاري تجهيز النسخة...';
+  try{
+    const [products,images,orders]=await Promise.all([backupCollection('products'),backupCollection('images'),backupCollection('orders')]);
+    const payload={format:'sunny-store-backup-v1',createdAt:new Date().toISOString(),project:'sunny-store-iq',products,images,orders};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='sunny-store-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+    alert(`تم تجهيز النسخة الاحتياطية.\nالمنتجات: ${products.length}\nالصور: ${images.length}\nالطلبات: ${orders.length}`);
+  }catch(e){alert('تعذر إنشاء النسخة الاحتياطية: '+e.message)}
+  b.disabled=false;b.textContent='تنزيل نسخة احتياطية';
+};
+
 $('save').onclick=async()=>{
   const data={name:$('name').value.trim(),price:Number($('price').value)||0,categoryId:$('cat').value,description:$('desc').value.trim(),stock:Number($('stock').value)||0,status:$('status').value,isFeatured:$('feat').checked,sortOrder:Number($('sort').value)||0};
   if(!data.name){$('msg').textContent='اكتب اسم المنتج.';return;}
